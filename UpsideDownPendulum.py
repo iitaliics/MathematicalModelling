@@ -18,8 +18,9 @@ import math
 """
 
 class thing:
-    def __init__(self, surface_area, ball_mass, link_length, link_angle, link_angular_vel, link_angular_accel, cart_displacement, cart_velocity, cart_acceleration,):
+    def __init__(self, surface_area, ball_mass, cart_mass, link_length, link_angle, link_angular_vel, link_angular_accel, cart_displacement, cart_velocity, cart_acceleration,):
         self.ball_mass = ball_mass
+        self.cart_mass = cart_mass
         self.surface_area = surface_area
         self.link_length = link_length 
         self.link_angle = link_angle    #up is 0, right is pi/2, down is pi/-pi
@@ -34,7 +35,7 @@ def calcAirResistanceTorque(thing):
     airDensity = 1
     area = thing.surface_area
     dragCoef = 0.4
-    velocity = thing.link_length * thing.link_angular_vel
+    velocity = thing.link_length * thing.link_angular_vel #- thing.cart_velocity * math.cos(thing.link_angle)
     try:
         torque = thing.link_length * 0.5 * airDensity * area * dragCoef * -math.copysign(math.pow(velocity, 2), velocity)
     except:
@@ -69,6 +70,20 @@ def calcExternalForce(obj):
         return 0
     return f_total
 
+def calculateLinkTension(obj):
+    accel_g = 9.81
+    print(obj.link_angular_vel)
+    link_T = (obj.ball_mass * math.pow(obj.link_angular_vel, 2)) / obj.link_length - (obj.ball_mass * accel_g * math.cos(obj.link_angle))
+
+    return link_T
+
+def calcCartAppliedTorqueOnBall(obj):
+    # the force applied to the ball from the cart will be the same as the force applied to the cart from the ball, but in the opposite direction.
+
+
+
+    return torque
+
 def calcGravityTorque(obj):
     accel_g = -9.81
     total = accel_g * -math.sin(obj.link_angle)
@@ -79,9 +94,10 @@ def calcGravityTorque(obj):
 def calcResultantTorque(thing, time):
     T_air = calcAirResistanceTorque(thing)
     T_grav = calcGravityTorque(thing)
+    # T_cart = calcCartAppliedTorqueOnBall(thing)
 
     T_external = 0 # calcExternalForce(thing)
-    T_result = T_air + T_grav + T_external
+    T_result = T_air + T_grav
     return T_result
 
 
@@ -174,7 +190,8 @@ def playback(data):
     width = 1000
     height = 500
 
-    
+    clock = pygame.time.Clock()
+
 
     for frame in range(len(data)):
         time = data[frame][0]
@@ -198,10 +215,10 @@ def playback(data):
         pygame.draw.line(screen, (254, 0, 0), (cart_pos, height / 2), (cart_pos + link_length * math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), 2) # link
 
         pygame.draw.circle(screen, (0, 254, 0), (cart_pos + link_length * math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), radius=20, width=2) # ball
-
+        clock.tick(60)
         pygame.display.update()
 
-del_t = 0.005
+del_t = 0.01
 #goal height
 goal_height = 500
 
@@ -213,7 +230,7 @@ if __name__ == '__main__':
     plot = pygame.display.set_mode(((resolution[0] + 1), (resolution[1] + 1)))
     screen = pygame.display.set_mode(((resolution[0] + 1), (resolution[1] + 1)))
 
-    obj = thing(1, 20, 1, 0.1, 0, 0, 750, 0, 0)
+    obj = thing(1, 20, 1, 1, 0.1, 0, 0, 150, 0, 0)
     time = 0
 
     data = []
@@ -231,6 +248,26 @@ if __name__ == '__main__':
             obj.link_angle = obj.link_angle + 2 * math.pi
         if obj.link_angle > math.pi:
             obj.link_angle = obj.link_angle - 2 * math.pi
+
+        tension = calculateLinkTension(obj)
+        obj.cart_acceleration = (tension * math.sin(obj.link_angle)) / obj.cart_mass
+
+        
+        cart_del_v = obj.cart_velocity + obj.cart_acceleration * del_t
+        cart_del_z = obj.cart_displacement + obj.cart_velocity * del_t
+
+        obj.cart_displacement = cart_del_z + cart_del_v * del_t
+        obj.cart_velocity = cart_del_v
+
+        if obj.cart_displacement > 1000:
+            obj.cart_displacement = 1000
+            obj.cart_acceleration = 0
+            obj.cart_velocity = 0
+
+        if obj.cart_displacement < 0:
+            obj.cart_displacement = 0
+            obj.cart_acceleration = 0
+            obj.cart_velocity = 0
            
             # obj.velocity = 0
             # obj.acceleration = calcResultantAccel(obj, time)
