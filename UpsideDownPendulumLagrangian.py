@@ -30,76 +30,86 @@ class thing:
         self.cart_velocity = cart_velocity
         self.cart_acceleration = cart_acceleration
 
-#Ball motion
-def calcAirResistanceTorque(thing):
+def calculate_link_tension(thing):
+    accel_g = 9.81
+    link_T = (obj.ball_mass * math.pow(obj.link_angular_vel, 2)) - (obj.ball_mass * accel_g * math.cos(obj.link_angle))
+    return link_T
+
+def calculate_cart_friction(thing):
+    return 0.05 * thing.cart_velocity
+    coefficient = 0.05 if thing.cart_velocity > 0 else 0.1
+    return coefficient * (thing.cart_mass + calculate_link_tension(thing) * math.cos(thing.link_angle))
+
+def applied_cart_force(thing):
+    #want to control the system based on the pendulum variables and the cart position
+
+    #Goal positions
+    cart_goal_position = 5
+    pendulum_goal_angle = 0
+
+    #offsets
+    # cart_goal_position = 5
+    # pendulum_goal_angle = 0
+
+    #gains
+    p_cart = -10
+    p_angle = 700
+    d_ang_vel = -100
+    dd_ang_accel = 0
+
+    horizon_modifier = 1 if math.cos(thing.link_angle) > 0 else -1
+
+    
+
+    cart_f = p_cart * (cart_goal_position - thing.cart_displacement)
+    angle_f = p_angle * ((pendulum_goal_angle - thing.link_angle))
+    ang_vel_f = d_ang_vel * (thing.link_angular_vel)
+    ang_accel_f = dd_ang_accel * (thing.link_angular_accel) * horizon_modifier
+
+
+    sum_f = cart_f + angle_f + ang_vel_f + ang_accel_f
+
+    return sum_f
+
+def calculate_air_resistance(thing):
     airDensity = 1
     area = thing.surface_area
     dragCoef = 0.4
     velocity = thing.link_length * thing.link_angular_vel #- thing.cart_velocity * math.cos(thing.link_angle)
     try:
-        torque = thing.link_length * 0.5 * airDensity * area * dragCoef * -math.copysign(math.pow(velocity, 2), velocity)
+        torque = thing.link_length * 0.5 * airDensity * area * dragCoef * (velocity * velocity) * math.copysign(1, velocity)
+        return torque
     except:
-        print(torque)
-    # print(force)
-    return torque
+        print(velocity)
+    
 
-def calcExternalForce(obj):
-   
-#    p_offset = 50
-#    p_const = 0.4
-#    d_const = -2
-#    d_a_const = 3
-    d_f = 0
-    a_f = 0
-    v_f = 0
+def calculate_trolley_acceleration(thing):
+    mp = thing.ball_mass
+    mt = thing.cart_mass
+    l = thing.link_length
+    thetadd = thing.link_angular_accel
+    thetad = thing.link_angular_vel
+    theta = thing.link_angle
 
-    p_offset = 50
-    p_const = 0.3
-    d_const = -1
-    d_a_const = 2
+    F_ext = applied_cart_force(thing)
+    F_friction = calculate_cart_friction(thing)
 
-    v_f = d_const * obj.velocity
-    a_f = d_a_const * obj.acceleration
-    d_f = p_const * (goal_height - obj.height) + p_offset
-#    if obj.height < goal_height:
-#        d_f =
-    sum_f = d_f + a_f + v_f
-    f_total = sum_f * (obj.mass / 5)
-   
-    if f_total < 0: #or f_total > 0:
-        return 0
-    return f_total
+    cart_accel = -((mp * l * (thetadd * math.cos(theta) - math.pow(thetad, 2) * math.sin(theta))) / (mt + mp)) - F_friction + F_ext / mt
 
-def calculateLinkTension(obj):
-    accel_g = 9.81
-    link_T = (obj.ball_mass * math.pow(obj.link_angular_vel, 2)) - (obj.ball_mass * accel_g * math.cos(obj.link_angle))
+    return cart_accel
 
-    return link_T
+def calculate_pendulum_angular_acceleration(thing):
+    mp = thing.ball_mass
+    mt = thing.cart_mass
+    l = thing.link_length
+    xdotdot = thing.cart_acceleration
+    theta = thing.link_angle
 
-def calcCartAppliedAccelOnBall(obj):
-    # the force applied to the ball from the cart will be the same as the force applied to the cart from the ball, but in the opposite direction.
-    ball_acceleration = obj.cart_acceleration - obj.link_length * obj.link_angular_accel * math.cos(obj.link_angle)
+    T_air_resistance = calculate_air_resistance(thing)
 
-    torque = ball_acceleration * obj.link_length
-    return torque
+    pendulum_ang_accel = ((l * xdotdot * math.cos(theta) - l * (-9.81) * math.sin(theta)) / math.pow(l, 2)) - T_air_resistance
 
-def calcGravityTorque(obj):
-    accel_g = -9.81
-    total = accel_g * -math.sin(obj.link_angle)
-    torque = total * obj.link_length
-    return torque
-
-
-def calcResultantTorque(thing, time):
-    T_air = calcAirResistanceTorque(thing)
-    T_grav = calcGravityTorque(thing)
-    T_cart = calcCartAppliedAccelOnBall(thing)
-
-    print(T_air, T_grav, T_cart)
-
-    T_external = 0 # calcExternalForce(thing)
-    T_result = T_air + T_grav + 0
-    return T_result
+    return pendulum_ang_accel
 
 
 #Cart motion (controllable)
@@ -197,13 +207,11 @@ def playback(data):
     for frame in range(len(data)):
         time = data[frame][0]
 
-        cart_pos = data[frame][1]
+        cart_pos = data[frame][1] * 95 + 2.5
 
-        link_length = data[frame][2] * 100
+        link_length = data[frame][2] * 200
 
         link_angle = data[frame][3]
-
-        print(link_angle)
 
         screen.fill("black")
         pygame.draw.line(screen, (0, 0, 254), (50, height / 2), (width - 50, height / 2), 2) # track
@@ -213,9 +221,9 @@ def playback(data):
         pygame.draw.rect(screen, (254, 0, 254), pygame.Rect((cart_pos - rect_width / 2), (height / 2 - rect_height / 2), rect_width, rect_height)) # cart
 
 
-        pygame.draw.line(screen, (254, 0, 0), (cart_pos, height / 2), (cart_pos + link_length * math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), 2) # link
+        pygame.draw.line(screen, (254, 0, 0), (cart_pos, height / 2), (cart_pos + link_length * -math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), 2) # link
 
-        pygame.draw.circle(screen, (0, 254, 0), (cart_pos + link_length * math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), radius=20, width=2) # ball
+        pygame.draw.circle(screen, (0, 254, 0), (cart_pos + link_length * -math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), radius=20, width=2) # ball
         clock.tick(60)
         pygame.display.update()
 
@@ -231,41 +239,41 @@ if __name__ == '__main__':
     plot = pygame.display.set_mode(((resolution[0] + 1), (resolution[1] + 1)))
     screen = pygame.display.set_mode(((resolution[0] + 1), (resolution[1] + 1)))
 
-    obj = thing(1, 20, 1, 1, 0.1, 0, 0, 150, 120, 0)
+    obj = thing(
+        surface_area=1,
+        ball_mass=50,
+        cart_mass=20,
+        link_length=1, 
+        link_angle=0.1, 
+        link_angular_vel=0, 
+        link_angular_accel=0,
+        cart_displacement=5, 
+        cart_velocity=0, 
+        cart_acceleration=0)
     time = 0
 
     data = []
 
-    for _ in range(10500): # simulation
-        obj.link_angular_accel = calcResultantTorque(obj, time)
+    for _ in range(5000): # simulation
+        obj.link_angular_accel = calculate_pendulum_angular_acceleration(obj)
+        obj.cart_acceleration = calculate_trolley_acceleration(obj)
         
-        del_v = obj.link_angular_vel + obj.link_angular_accel * del_t 
-        del_z = obj.link_angle + obj.link_angular_vel * del_t
-               
-        obj.link_angle = del_z + del_v * del_t
-        obj.link_angular_vel = del_v
+        obj.link_angular_vel = obj.link_angular_vel + obj.link_angular_accel * del_t
+        obj.link_angle = obj.link_angle + obj.link_angular_vel * del_t
 
-        if obj.link_angle < -math.pi:
-            obj.link_angle = obj.link_angle + 2 * math.pi
-        if obj.link_angle > math.pi:
-            obj.link_angle = obj.link_angle - 2 * math.pi
+        obj.cart_velocity = obj.cart_velocity + obj.cart_acceleration * del_t
+        obj.cart_displacement = obj.cart_displacement + obj.cart_velocity * del_t
 
-        tension = calculateLinkTension(obj)
-        obj.cart_acceleration = (tension * math.sin(obj.link_angle)) / obj.cart_mass
-
-        
-        cart_del_v = obj.cart_velocity + obj.cart_acceleration * del_t
-        cart_del_z = obj.cart_displacement + obj.cart_velocity * del_t
-
-        obj.cart_displacement = cart_del_z + cart_del_v * del_t
-        obj.cart_velocity = cart_del_v
-
-        if obj.cart_displacement > 1000:
-            obj.cart_displacement = 1000
+        if obj.cart_displacement > 10:
+            # obj.link_angular_vel += obj.cart_velocity * math.cos(obj.link_angle)
+            obj.cart_displacement = 10
             obj.cart_acceleration = 0
             obj.cart_velocity = 0
 
+            
+
         if obj.cart_displacement < 0:
+            # obj.link_angular_vel += obj.cart_velocity * math.cos(obj.link_angle)
             obj.cart_displacement = 0
             obj.cart_acceleration = 0
             obj.cart_velocity = 0
