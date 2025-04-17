@@ -36,7 +36,9 @@ def calculate_link_tension(thing):
     return link_T
 
 def calculate_cart_friction(thing):
-    return 0.05 * thing.cart_velocity
+    # if thing.cart_displacement > 2:
+    #     return 0.1 * thing.cart_velocity
+    return 0
     coefficient = 0.05 if thing.cart_velocity > 0 else 0.1
     return coefficient * (thing.cart_mass + calculate_link_tension(thing) * math.cos(thing.link_angle))
 
@@ -52,31 +54,32 @@ def applied_cart_force(thing):
     # pendulum_goal_angle = 0
 
     #gains
-    p_cart = -10
-    p_angle = 700
-    d_ang_vel = -100
+    p_cart_d = 0
+    p_cart_v = 0 # -10
+    p_angle = 100
+    d_ang_vel = 0
     dd_ang_accel = 0
 
     horizon_modifier = 1 if math.cos(thing.link_angle) > 0 else -1
 
     
 
-    cart_f = p_cart * (cart_goal_position - thing.cart_displacement)
-    angle_f = p_angle * ((pendulum_goal_angle - thing.link_angle))
+    cart_d_f = p_cart_d * (cart_goal_position - thing.cart_displacement)
+    cart_v_f = p_cart_v * (thing.cart_velocity)
+    angle_f = p_angle * (pendulum_goal_angle - math.copysign((thing.link_angle % math.pi), -thing.link_angle))
     ang_vel_f = d_ang_vel * (thing.link_angular_vel)
     ang_accel_f = dd_ang_accel * (thing.link_angular_accel) * horizon_modifier
 
-
-    sum_f = cart_f + angle_f + ang_vel_f + ang_accel_f
-
+    sum_f = cart_d_f + cart_v_f + angle_f + ang_vel_f + ang_accel_f
     return sum_f
 
 def calculate_air_resistance(thing):
     airDensity = 1
     area = thing.surface_area
     dragCoef = 0.4
-    velocity = thing.link_length * thing.link_angular_vel #- thing.cart_velocity * math.cos(thing.link_angle)
+    velocity = thing.link_length * thing.link_angular_vel + thing.cart_velocity * math.cos(thing.link_angle)
     try:
+        # return 0
         torque = thing.link_length * 0.5 * airDensity * area * dragCoef * (velocity * velocity) * math.copysign(1, velocity)
         return torque
     except:
@@ -106,8 +109,11 @@ def calculate_pendulum_angular_acceleration(thing):
     theta = thing.link_angle
 
     T_air_resistance = calculate_air_resistance(thing)
+    F_ext = applied_cart_force(thing)
 
-    pendulum_ang_accel = ((l * xdotdot * math.cos(theta) - l * (-9.81) * math.sin(theta)) / math.pow(l, 2)) - T_air_resistance
+    pendulum_ang_accel = ((0 * (-xdotdot * math.cos(theta)) - ((-9.81) * math.sin(theta))) / l) - T_air_resistance - F_ext * math.cos(theta)
+
+    # pendulum_ang_accel = (1 / l) * xdotdot * math.cos(theta)
 
     return pendulum_ang_accel
 
@@ -209,11 +215,34 @@ def playback(data):
 
         cart_pos = data[frame][1] * 95 + 2.5
 
-        link_length = data[frame][2] * 200
+        cart_vel = data[frame][2]
 
-        link_angle = data[frame][3]
+        cart_acc = data[frame][3]
+
+        link_length = data[frame][4] * 200
+
+        link_angle = data[frame][5]
+
+        link_vel = data[frame][6]
+        
+        link_acc = data[frame][7]
 
         screen.fill("black")
+        
+        text_surface = my_font.render(str(cart_vel), False, (254, 254, 254))
+        screen.blit(text_surface, (0,0))
+        
+        text_surface = my_font.render(str(cart_acc), False, (254, 254, 254))
+        screen.blit(text_surface, (0,30))
+
+
+        text_surface = my_font.render(str(link_vel), False, (254, 254, 254))
+        screen.blit(text_surface, (0,60))
+
+        text_surface = my_font.render(str(link_acc), False, (254, 254, 254))
+        screen.blit(text_surface, (0,90))
+
+
         pygame.draw.line(screen, (0, 0, 254), (50, height / 2), (width - 50, height / 2), 2) # track
 
         rect_width = 50
@@ -221,13 +250,14 @@ def playback(data):
         pygame.draw.rect(screen, (254, 0, 254), pygame.Rect((cart_pos - rect_width / 2), (height / 2 - rect_height / 2), rect_width, rect_height)) # cart
 
 
-        pygame.draw.line(screen, (254, 0, 0), (cart_pos, height / 2), (cart_pos + link_length * -math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), 2) # link
+        pygame.draw.line(screen, (254, 0, 0), (cart_pos, height / 2), (cart_pos + link_length * math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), 2) # link
 
-        pygame.draw.circle(screen, (0, 254, 0), (cart_pos + link_length * -math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), radius=20, width=2) # ball
+        pygame.draw.circle(screen, (0, 254, 0), (cart_pos + link_length * math.sin(link_angle), height / 2 - link_length * math.cos(link_angle)), radius=20, width=2) # ball
         clock.tick(60)
         pygame.display.update()
+        
 
-del_t = 0.01
+del_t = 0.001
 #goal height
 goal_height = 500
 
@@ -238,51 +268,62 @@ if __name__ == '__main__':
 
     plot = pygame.display.set_mode(((resolution[0] + 1), (resolution[1] + 1)))
     screen = pygame.display.set_mode(((resolution[0] + 1), (resolution[1] + 1)))
+    pygame.font.init() # you have to call this at the start, 
+                   # if you want to use this module.
+    my_font = pygame.font.SysFont('Comic Sans MS', 30)
 
     obj = thing(
         surface_area=1,
-        ball_mass=50,
-        cart_mass=20,
-        link_length=1, 
-        link_angle=0.1, 
+        ball_mass=5,
+        cart_mass = 2,
+        link_length=0.5, 
+        link_angle=0, 
         link_angular_vel=0, 
         link_angular_accel=0,
-        cart_displacement=5, 
-        cart_velocity=0, 
+        cart_displacement=0, 
+        cart_velocity=3, 
         cart_acceleration=0)
     time = 0
 
     data = []
 
     for _ in range(5000): # simulation
-        obj.link_angular_accel = calculate_pendulum_angular_acceleration(obj)
-        obj.cart_acceleration = calculate_trolley_acceleration(obj)
-        
-        obj.link_angular_vel = obj.link_angular_vel + obj.link_angular_accel * del_t
-        obj.link_angle = obj.link_angle + obj.link_angular_vel * del_t
-
-        obj.cart_velocity = obj.cart_velocity + obj.cart_acceleration * del_t
-        obj.cart_displacement = obj.cart_displacement + obj.cart_velocity * del_t
-
-        if obj.cart_displacement > 10:
-            # obj.link_angular_vel += obj.cart_velocity * math.cos(obj.link_angle)
-            obj.cart_displacement = 10
-            obj.cart_acceleration = 0
-            obj.cart_velocity = 0
-
+        try:
+            obj.link_angular_accel = calculate_pendulum_angular_acceleration(obj)
+            obj.cart_acceleration = calculate_trolley_acceleration(obj)
             
+            obj.cart_velocity = obj.cart_velocity + obj.cart_acceleration * del_t
+            obj.cart_displacement = obj.cart_displacement + obj.cart_velocity * del_t
 
-        if obj.cart_displacement < 0:
-            # obj.link_angular_vel += obj.cart_velocity * math.cos(obj.link_angle)
-            obj.cart_displacement = 0
-            obj.cart_acceleration = 0
-            obj.cart_velocity = 0
+            momentum_transfer = 0
+
+            if obj.cart_displacement >= 10:
+                obj.link_angular_vel += (obj.cart_velocity) * math.cos(obj.link_angle)
+                obj.cart_displacement = 9.999
+                obj.cart_acceleration = 0
+                obj.cart_velocity = 0
+
+                
+
+            if obj.cart_displacement <= 0:
+                obj.link_angular_vel += (obj.cart_velocity) * math.cos(obj.link_angle)
+                obj.cart_displacement = 0.001
+                obj.cart_acceleration = 0
+                obj.cart_velocity = 0
+
+
+            obj.link_angular_vel = obj.link_angular_vel + momentum_transfer + obj.link_angular_accel * del_t
+            obj.link_angle = obj.link_angle + obj.link_angular_vel * del_t
+
+        
            
             # obj.velocity = 0
             # obj.acceleration = calcResultantAccel(obj, time)
         
-        time += del_t
-        data.append([time, obj.cart_displacement, obj.link_length, obj.link_angle])
+            time += del_t
+            data.append([time,  obj.cart_displacement, obj.cart_velocity, obj.cart_acceleration, obj.link_length, obj.link_angle, obj.link_angular_vel, obj.link_angular_accel])
+        except:
+            pass
         # print("time: ", int(time), "        height: ", obj.height,  "       vel: ", obj.velocity,  "        accel: ", obj.acceleration)
     plot.fill("black")
     # graph(data)
