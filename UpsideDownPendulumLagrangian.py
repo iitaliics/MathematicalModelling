@@ -54,22 +54,28 @@ def applied_cart_force(thing):
     # pendulum_goal_angle = 0
 
     #gains
-    p_cart_d = 0
+    p_cart_d = 1
     p_cart_v = 0 # -10
-    p_angle = 100
-    d_ang_vel = 0
+    p_angle = -100
+    d_ang_vel = 10
     dd_ang_accel = 0
 
     horizon_modifier = 1 if math.cos(thing.link_angle) > 0 else -1
 
-    
+    pos_closeness_scalar = 1 - abs(cart_goal_position - thing.cart_displacement) / max(cart_goal_position, 10-cart_goal_position)
+
+    rot_closeness_scalar = 1 - (math.pi-(pendulum_goal_angle + abs(thing.link_angle) % math.pi)) / math.pi
 
     cart_d_f = p_cart_d * (cart_goal_position - thing.cart_displacement)
-    cart_v_f = p_cart_v * (thing.cart_velocity)
-    angle_f = p_angle * (pendulum_goal_angle - math.copysign((thing.link_angle % math.pi), -thing.link_angle))
-    ang_vel_f = d_ang_vel * (thing.link_angular_vel)
-    ang_accel_f = dd_ang_accel * (thing.link_angular_accel) * horizon_modifier
+    cart_v_f = p_cart_v * (thing.cart_velocity) * pos_closeness_scalar
+    angle_f = p_angle * (pendulum_goal_angle - abs(thing.link_angle) % math.pi) * math.copysign(1, thing.link_angle)
+    ang_vel_f = d_ang_vel * (thing.link_angular_vel) * rot_closeness_scalar * horizon_modifier
+    ang_accel_f = dd_ang_accel * (thing.link_angular_accel) * horizon_modifier * rot_closeness_scalar
 
+    
+    # print("Link angle delta", pendulum_goal_angle - thing.link_angle, "force", angle_f, " ---- ", abs(thing.link_angle) % math.pi)
+    
+    
     sum_f = cart_d_f + cart_v_f + angle_f + ang_vel_f + ang_accel_f
     return sum_f
 
@@ -242,6 +248,9 @@ def playback(data):
         text_surface = my_font.render(str(link_acc), False, (254, 254, 254))
         screen.blit(text_surface, (0,90))
 
+        text_surface = my_font.render(str(link_angle), False, (254, 254, 254))
+        screen.blit(text_surface, (0,120))
+
 
         pygame.draw.line(screen, (0, 0, 254), (50, height / 2), (width - 50, height / 2), 2) # track
 
@@ -257,7 +266,7 @@ def playback(data):
         pygame.display.update()
         
 
-del_t = 0.001
+del_t = 0.01
 #goal height
 goal_height = 500
 
@@ -277,7 +286,7 @@ if __name__ == '__main__':
         ball_mass=5,
         cart_mass = 2,
         link_length=0.5, 
-        link_angle=0, 
+        link_angle= 0.2, 
         link_angular_vel=0, 
         link_angular_accel=0,
         cart_displacement=0, 
@@ -287,7 +296,7 @@ if __name__ == '__main__':
 
     data = []
 
-    for _ in range(5000): # simulation
+    for _ in range(2500): # simulation
         try:
             obj.link_angular_accel = calculate_pendulum_angular_acceleration(obj)
             obj.cart_acceleration = calculate_trolley_acceleration(obj)
